@@ -23,6 +23,9 @@ type (
 
 		// DigitalOcean region where volumes will be provisioned.
 		region string
+
+		// Indicates readiness of the CSI driver.
+		isReady bool
 	}
 
 	NewCsiDriverArgs struct {
@@ -37,6 +40,8 @@ func NewCsiDriver(args NewCsiDriverArgs) *CsiDriver {
 		name:              CSI_DRIVER_NAME,
 		grpcServerAddress: parseEndpoint(args.Endpoint),
 		region:            args.Region,
+
+		isReady: false,
 	}
 }
 
@@ -52,6 +57,8 @@ func (c *CsiDriver) Run() error {
 	csi.RegisterNodeServer(c.grpcServer, c)
 	csi.RegisterControllerServer(c.grpcServer, c)
 	csi.RegisterIdentityServer(c.grpcServer, c)
+
+	c.isReady = true
 
 	return c.grpcServer.Serve(listener)
 }
@@ -83,8 +90,10 @@ func parseEndpoint(endpoint string) string {
 	// Suppose we start the gRPC server for the first time. If we hit Ctrl + c quitting the server and
 	// try to restart it then we will get an error that address is already in use. Thats'y we will
 	// remove the Unix socket file everytime before starting the gRPC server.
-	if err := os.Remove(gRPCServerAddress); err != nil && !os.IsExist(err) {
-		log.Panicf("Error removing listener address : %v", err)
+	if err := os.Remove(gRPCServerAddress); err != nil {
+		if !os.IsNotExist(err) {
+			log.Panicf("Error removing listener address : %v", err)
+		}
 	}
 
 	return gRPCServerAddress

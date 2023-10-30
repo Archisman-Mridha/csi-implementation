@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: digitalocean-csi-driver
+  namespace: default
+
+spec:
+  selector:
+    matchLabels:
+      app: digitalocean-csi-driver
+  template:
+    metadata:
+      labels:
+        app: digitalocean-csi-driver
+    spec:
+      serviceAccountName: digitalocean-csi-driver
+      containers:
+
+        ## The Kubernetes CSI Provisioner watches Kubernetes PVC objects and triggers CreateVolume,
+        ## DeleteVolume etc. gRPC calls against our CSI driver via the Unix domain socket, to
+        ## dynamically provision volumes. The internal Kubernetes PersistentVolume controller does
+        ## not have any direct interfaces to CSI drivers. So the CSI Provisioner acts as an external
+        ## provisioner that bridges the gap.
+        - name: external-provisioner
+          image: k8s.gcr.io/sig-storage/csi-provisioner:v3.1.0
+          resources:
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          args: ["--csi-address=$(CSI_ENDPOINT)"]
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///var/lib/csi/sockets/pluginproxy
+          volumeMounts:
+            - mountPath: /var/lib/csi/sockets/pluginproxy
+              name: domain_socket
+
+        ## Our CSI driver.
+        - name: digitalocean-csi-driver
+          image: archismanmridha/digitalocean-csi-driver:0.0.1
+          resources:
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          args: ["--endpoint=$(CSI_ENDPOINT)"]
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///var/lib/csi/sockets/pluginproxy
+          volumeMounts:
+            - mountPath: /var/lib/csi/sockets/pluginproxy
+              name: domain_socket
+      volumes:
+        - name: domain_socket
+          emptyDir: { }
