@@ -2,8 +2,12 @@ package driver
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/digitalocean/godo"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ControllerGetCapabilities allows the CO to check the supported capabilities of controller service
@@ -31,15 +35,47 @@ func (c *CsiDriver) ControllerGetCapabilities(ctx context.Context, req *csi.Cont
 	return response, nil
 }
 
+// CreateVolume will be invoked by the CO to provision a new volume on behalf of a user (to be
+// consumed as either a block device or a mounted filesystem). This operation MUST be idempotent.
 func (c *CsiDriver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
+	fmt.Println("CreateVolume invoked")
+
+	volumeName := req.Name
+	if volumeName == "" {
+		return nil, status.Error(codes.InvalidArgument, "Volume name must be specified")
+	}
+
+	minStorageCapacity := req.CapacityRange.RequiredBytes
+
+	// volumeCapabilities consists of volume access modes and the volume binding mode.
+	volumeCapabilities := req.VolumeCapabilities
+	if len(volumeCapabilities) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Volume access modes must be specified")
+	}
+
+	volume, _, err := c.doStorageService.CreateVolume(context.Background(), &godo.VolumeCreateRequest{
+		Name:          volumeName,
+		Region:        c.region,
+		SizeGigaBytes: minStorageCapacity / (1024 * 1024 * 1024),
+	})
+	if err != nil {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("Failed provisioning volume : %v", err))
+	}
+
+	response := &csi.CreateVolumeResponse{
+		Volume: &csi.Volume{
+			VolumeId:      volume.ID,
+			CapacityBytes: volume.SizeGigaBytes * (1024 * 1024 * 1024),
+		},
+	}
+	return response, nil
+}
+
+func (c *CsiDriver) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
 	return nil, nil
 }
 
 func (c *CsiDriver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
-	return nil, nil
-}
-
-func (c *CsiDriver) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
 	return nil, nil
 }
 

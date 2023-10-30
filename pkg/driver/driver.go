@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/digitalocean/godo"
 	"google.golang.org/grpc"
 )
 
@@ -21,11 +22,13 @@ type (
 		grpcServer        *grpc.Server
 		grpcServerAddress string
 
+		// Indicates readiness of the CSI driver.
+		isReady bool
+
 		// DigitalOcean region where volumes will be provisioned.
 		region string
 
-		// Indicates readiness of the CSI driver.
-		isReady bool
+		doStorageService godo.StorageService
 	}
 
 	NewCsiDriverArgs struct {
@@ -36,12 +39,17 @@ type (
 )
 
 func NewCsiDriver(args NewCsiDriverArgs) *CsiDriver {
+	if len(args.Token) == 0 {
+		log.Panicf("DigitalOcean api token must be provided")
+	}
+
 	return &CsiDriver{
 		name:              CSI_DRIVER_NAME,
 		grpcServerAddress: parseEndpoint(args.Endpoint),
-		region:            args.Region,
+		isReady:           false,
 
-		isReady: false,
+		region:           args.Region,
+		doStorageService: godo.NewFromToken(args.Token).Storage,
 	}
 }
 
@@ -54,9 +62,9 @@ func (c *CsiDriver) Run() error {
 
 	c.grpcServer = grpc.NewServer()
 
-	csi.RegisterNodeServer(c.grpcServer, c)
-	csi.RegisterControllerServer(c.grpcServer, c)
 	csi.RegisterIdentityServer(c.grpcServer, c)
+	csi.RegisterControllerServer(c.grpcServer, c)
+	csi.RegisterNodeServer(c.grpcServer, c)
 
 	c.isReady = true
 
